@@ -766,3 +766,110 @@ macro(ocv_extract_simple_libs _all_libs _simple _other)
     endif()
   endforeach()
 endmacro()
+
+function(ocv_is_opencv_directory result_var dir)
+  get_filename_component(__abs_dir "${dir}" ABSOLUTE)
+  if("${__abs_dir}" MATCHES "^${OpenCV_SOURCE_DIR}"
+      OR "${__abs_dir}" MATCHES "^${OpenCV_BINARY_DIR}"
+      OR (OPENCV_EXTRA_MODULES_PATH AND "${__abs_dir}" MATCHES "^${OPENCV_EXTRA_MODULES_PATH}"))
+    set(${result_var} 1 PARENT_SCOPE)
+  else()
+    set(${result_var} 0 PARENT_SCOPE)
+  endif()
+endfunction()
+
+
+
+# adds include directories in such way that directories from the OpenCV source tree go first
+function(ocv_target_include_directories target)
+  #ocv_debug_message("ocv_target_include_directories(${target} ${ARGN})")
+  _ocv_fix_target(target)
+  set(__params "")
+  if(CMAKE_COMPILER_IS_GNUCXX AND NOT CMAKE_CXX_COMPILER_VERSION VERSION_LESS "6.0" AND
+      ";${ARGN};" MATCHES "/usr/include;")
+    return() # workaround for GCC 6.x bug
+  endif()
+  foreach(dir ${ARGN})
+    get_filename_component(__abs_dir "${dir}" ABSOLUTE)
+    ocv_is_opencv_directory(__is_opencv_dir "${dir}")
+    if(__is_opencv_dir)
+      list(APPEND __params "${__abs_dir}")
+    else()
+      list(APPEND __params "${dir}")
+    endif()
+  endforeach()
+  if(HAVE_CUDA OR CMAKE_VERSION VERSION_LESS 2.8.11)
+    include_directories(${__params})
+  else()
+    if(TARGET ${target})
+      target_include_directories(${target} PRIVATE ${__params})
+      if(OPENCV_DEPENDANT_TARGETS_${target})
+        foreach(t ${OPENCV_DEPENDANT_TARGETS_${target}})
+          target_include_directories(${t} PRIVATE ${__params})
+        endforeach()
+      endif()
+    else()
+      set(__new_inc "${OCV_TARGET_INCLUDE_DIRS_${target}};${__params}")
+      set(OCV_TARGET_INCLUDE_DIRS_${target} "${__new_inc}" CACHE INTERNAL "")
+    endif()
+  endif()
+endfunction()
+
+
+# rename modules target to world if needed
+macro(_ocv_fix_target target_var)
+  if(BUILD_opencv_world)
+    if(OPENCV_MODULE_${${target_var}}_IS_PART_OF_WORLD)
+      set(${target_var} opencv_world)
+    endif()
+  endif()
+endmacro()
+
+function(ocv_target_link_libraries target)
+  _ocv_fix_target(target)
+  set(LINK_DEPS ${ARGN})
+  # process world
+  if(BUILD_opencv_world)
+    foreach(m ${OPENCV_MODULES_BUILD})
+      if(OPENCV_MODULE_${m}_IS_PART_OF_WORLD)
+        if(";${LINK_DEPS};" MATCHES ";${m};")
+          list(REMOVE_ITEM LINK_DEPS ${m})
+          if(NOT (";${LINK_DEPS};" MATCHES ";opencv_world;"))
+            list(APPEND LINK_DEPS opencv_world)
+          endif()
+        endif()
+      endif()
+    endforeach()
+  endif()
+  if(";${LINK_DEPS};" MATCHES ";${target};")
+    list(REMOVE_ITEM LINK_DEPS "${target}") # prevent "link to itself" warning (world problem)
+  endif()
+  if(NOT TARGET ${target})
+    if(NOT DEFINED OPENCV_MODULE_${target}_LOCATION)
+      message(FATAL_ERROR "ocv_target_link_libraries: invalid target: '${target}'")
+    endif()
+    set(OPENCV_MODULE_${target}_LINK_DEPS ${OPENCV_MODULE_${target}_LINK_DEPS} ${LINK_DEPS} CACHE INTERNAL "" FORCE)
+  else()
+    target_link_libraries(${target} ${LINK_DEPS})
+  endif()
+endfunction()
+
+macro(ocv_add_testdata basedir dest_subdir)
+  if(BUILD_TESTS)
+    if(NOT CMAKE_CROSSCOMPILING AND NOT INSTALL_TESTS)
+      file(COPY ${basedir}/
+           DESTINATION ${CMAKE_BINARY_DIR}/${OPENCV_TEST_DATA_INSTALL_PATH}/${dest_subdir}
+           ${ARGN}
+      )
+    endif()
+    if(INSTALL_TESTS)
+      install(DIRECTORY ${basedir}/
+              DESTINATION ${OPENCV_TEST_DATA_INSTALL_PATH}/contrib/text
+              COMPONENT "tests"
+              ${ARGN}
+      )
+    endif()
+  endif()
+endmacro()
+
+
