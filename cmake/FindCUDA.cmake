@@ -720,7 +720,7 @@ endmacro()
 
 
 # CUDA_LIBRARIES
-cuda_find_library_local_first(CUDA_CUDART_LIBRARY cudart "\"cudart\" library")
+cuda_find_library_local_first(CUDA_CUDART_LIBRARY cudart_static "\"cudart_static\" library")
 if(CUDA_VERSION VERSION_EQUAL "3.0")
   # The cudartemu library only existed for the 3.0 version of CUDA.
   cuda_find_library_local_first(CUDA_CUDARTEMU_LIBRARY cudartemu "\"cudartemu\" library")
